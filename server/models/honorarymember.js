@@ -7,4 +7,4 @@ const HonoraryMember = new Schema ({
     reason: { type: String, default: '' }
 });
 
-export default mongoose.model('Honorarymember', Honorarymember);
+export default mongoose.model('HonoraryMember', HonoraryMember);

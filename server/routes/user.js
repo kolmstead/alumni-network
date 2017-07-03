@@ -5,14 +5,14 @@ import User from '../models/user';
 import Chat from '../models/chat';
 import PrivateChat from '../models/private-chat';
 import { isAuthenticated } from './passport';
-import { isAllowed } from '../../server';
+import { isAllowedForDev } from '../../server';
 import {
   getFrontEndCert,
   getBackEndCert,
   getDataVisCert,
 } from '../helpers/getCerts';
-import Whitelisteduser from '../models/whitelisteduser';
-import Honorarymember from '../models/honorarymember';
+import WhiteListedUser from '../models/whitelisteduser';
+import HonoraryMember from '../models/honorarymember';
 
 const router = express.Router();
 
