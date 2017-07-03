@@ -11,16 +11,22 @@ import {
   getBackEndCert,
   getDataVisCert,
 } from '../helpers/getCerts';
+// import { whitelist } from '../helpers/user-whitelist'; //*** don't need this anymore
 import Whitelisteduser from '../models/whitelisteduser';
-import Honorarymember from '../models/honorarymember';
+import Honorarymember from '../models/honorarymember'
 
 const router = express.Router();
 
+let honorarymembername = ''; //probably a better way to assign these
+let whitelistedusername = ''; //probably a better way to assign these
+
 // we post to avoid browser caching
 router.post('/api/user', (req, res) => {
+
   if (req.user) {
     User.findOne({ username: req.user.username }, (err, user) => {
       if (!err) {
+        console.log(`Got login name: ${req.user.username}`)
         res.send(user)
       } else {
         res.sendStatus(401);
@@ -29,58 +35,55 @@ router.post('/api/user', (req, res) => {
   } else {
     res.sendStatus(401);
   }
+
+  // Get Honorarymember from mongo
+  Honorarymember.findOne({ username: req.user.username }, 'username reason', (err,honorarymember) => {
+    if (err) {
+      return handleError(err);
+    } else {
+    honorarymembername = honorarymember.username;
+    console.log(`From Honorarymember ${honorarymembername}`);
+    };
+  });
+
+  // Get Whitelistedmember from mongo
+  Whitelisteduser.findOne({ username: req.user.username }, 'username', (err,whitelisteduser) => {
+    if (err) {
+      return handleError(err);
+    } else {     
+    whitelistedusername = whitelisteduser.username;
+    console.log(`From Whitelisteduser ${whitelistedusername}`);
+    };
+  });     
 });
+
 
 router.post('/api/verify-credentials', isAuthenticated, (req, res) => {
-  var username, honoraryMember = false, whitelistedUser = false;
-  const { mongoId } = req.body;
+
   // if user is whitelisted, use their alternate username:
-  WhiteListedUser.findOne({ githubUsername: req.body.username }, (err, user) => {
-    if (err) throw err;
-    if (user) {
-      username = user.fccUsername;
-      whitelistedUser = true;
-    } else {
-      username = req.body.username;
-    }
-    // if user is honorary member, they will be let in w/o certs:
-    HonoraryMember.findOne({ username: username.toLowerCase() }, (err, user) => {
-      if (err) throw err;
-      if (user) {
-        honoraryMember = true;
-      }
-      // process FCC verification...
-      processVerification(username, honoraryMember, whitelistedUser)
-      .then(certs => {
-        // update user as verified in DB or delete
-        handleProcessedUser(certs, mongoId, req, res, username);
-      });;
-    });
-  });
-});
+  // const username = whitelist[username] ? whitelist[username] : req.body.username; //***replace with mongo
+  const username = whitelistedusername ? whitelistedusername : req.body.username;
+  const { mongoId } = req.body;
+  console.log(`Whitelistedmembername: ${whitelistedusername} checked via mongo`);
 
-const processVerification = (username, honoraryMember, whitelistedUser) => {
-  console.log('processing verification for ' +
-    `${honoraryMember ? 'honorary member' : ''}` +
-    `${whitelistedUser ? 'white-listed user' : ''}` + ` ${username}`);
-
-  return axios.all([
-    getFrontEndCert(username),
-    getBackEndCert(username),
-    getDataVisCert(username)
-  ]).then(axios.spread((frontCert, backCert, dataCert) => {
+  console.log(`processing verification for ${username}`);
+  // process FCC verification...
+  axios.all([getFrontEndCert(username), getBackEndCert(username), getDataVisCert(username)])
+  .then(axios.spread((frontCert, backCert, dataCert) => {
     let totalRedirects =
-    frontCert.request._redirectCount +
-    backCert.request._redirectCount +
-    dataCert.request._redirectCount;
-    if (honoraryMember || totalRedirects < 3) {
+      frontCert.request._redirectCount +
+      backCert.request._redirectCount +
+      dataCert.request._redirectCount;
+    // if (username.toLowerCase() in honoraryMembers || totalRedirects < 3) {  //replaced with mongo
+    if (username.toLowerCase() === honorarymembername || totalRedirects < 3) {
+      console.log(`Honorarymembername: ${honorarymembername} check via mongo`);
       return {
         Front_End: frontCert.request._redirectCount === 0 ? true : false,
         Back_End: backCert.request._redirectCount === 0 ? true : false,
         Data_Visualization: dataCert.request._redirectCount === 0 ? true : false,
       }
     } else {
-      if (isAllowedForDev) {
+      if (isAllowed) {
         return {
           Front_End: false,
           Back_End: false,
@@ -90,35 +93,33 @@ const processVerification = (username, honoraryMember, whitelistedUser) => {
         return false;
       }
     }
-  }))
-}
-
-const handleProcessedUser = (certs, mongoId, req, res, username) => {
-  if (!certs) {
-    // user not verified, res with error
-    User.findById(mongoId, (err, user) => {
-      if (err) throw err;
-      user.verifiedUser = false;
-      user.save();
-      res.status(401).json({ error: 'User cannot be verified' });
-    });
-  } else {
-    // verified user, proceed
-    User.findById(mongoId, (err, user) => {
-      if (err) throw err;
+  })).then(certs => {
+    if (!certs) {
+      // user not verified, res with error
+      User.findById(mongoId, (err, user) => {
+        if (err) throw err;
+        user.verifiedUser = false;
+        user.save();
+        res.status(401).json({ error: 'User cannot be verified' });
+      });
+    } else {
+      // verified user, proceed
+      User.findById(mongoId, (err, user) => {
+        if (err) throw err;
       /* we need to overwrite their session username too
-      (only matters for whitelisted users) */
-      req.user.username = username;
-      user.username = username;
-      user.fccCerts = certs;
-      user.verifiedUser = true;
-      user.save();
-      req.user.verifiedUser = true;
-      req.user.fccCerts = certs;
-      res.json({ user });
-    });
-  }
-}
+        (only matters for whitelisted users) */
+        req.user.username = username;
+        user.username = username;
+        user.fccCerts = certs;
+        user.verifiedUser = true;
+        user.save();
+        req.user.verifiedUser = true;
+        req.user.fccCerts = certs;
+        res.json({ user });
+      });
+    }
+  });
+});
 
 router.post('/api/update-user', (req, res) => {
   const { user } = req.body;
